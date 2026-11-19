@@ -76,7 +76,6 @@ input#codeIn{width:100%;padding:11px;border-radius:10px;border:1px solid var(--l
   <h3>설정</h3>
   <label>가족 코드 (가족에게만 알려주세요)</label>
   <div class="mono" id="codeShow"></div>
-  <div class="btns"><button id="btnSwap">남편/와이프 바꾸기</button><button id="btnLeave">이 폰에서 나가기</button></div>
   <div class="btns"><button id="menuClose">닫기</button></div>
 </div></div>
 
@@ -216,8 +215,6 @@ $("shSave").onclick=async()=>{
 $("btnMenu").onclick=()=>{$("codeShow").textContent=code;$("ov2").classList.add("show")};
 $("menuClose").onclick=()=>$("ov2").classList.remove("show");
 $("ov2").addEventListener("click",e=>{if(e.target.id==="ov2")$("ov2").classList.remove("show")});
-$("btnSwap").onclick=()=>{role=role==="h"?"w":"h";ls.set("role",role);$("meTxt").textContent=WHO[role];$("ov2").classList.remove("show");render()};
-$("btnLeave").onclick=()=>{if(confirm("이 폰에서 나갈까요? 다시 들어오려면 가족 코드가 필요해요.")){ls.del("code");ls.del("role");location.reload()}};
 
 /* 입장 화면 */
 const setPick=r=>{pick=r;$("rH").className=r==="h"?"sel":"";$("rW").className=r==="w"?"sel":""};
