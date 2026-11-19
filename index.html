@@ -34,6 +34,11 @@ button{font:inherit;cursor:pointer}
 .sheet input{width:100%;padding:11px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--tx);font-size:16px}
 .btns{display:flex;gap:8px;margin-top:16px}.btns button{flex:1;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--tx);font-weight:600}.btns .pri{background:var(--acc);color:#fff;border:0}
 .join{margin-top:50px}.join p{color:var(--sub);font-size:14px;line-height:1.5}
+.sheet{max-height:88vh;overflow:auto}
+.hh{display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--line);font-size:14px}
+.hh .d{flex:1}.hh .g{color:var(--sub);font-size:12px}
+.hh button{background:none;border:0;color:var(--sub);font-size:16px;padding:4px 8px}
+.hsum{font-size:12px;color:var(--sub);margin:14px 0 4px}
 .mono{font-family:ui-monospace,Menlo,monospace;word-break:break-all;font-size:15px;padding:10px;background:var(--bg);border-radius:10px}
 .btns .sel{background:var(--acc);color:#fff;border:0}
 input#codeIn{width:100%;padding:11px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--tx);font-size:16px}
@@ -70,6 +75,8 @@ input#codeIn{width:100%;padding:11px;border-radius:10px;border:1px solid var(--l
   <label>주기 (일)</label><input id="shDays" type="number" min="1" inputmode="numeric">
   <label>마지막으로 한 날</label><input id="shLast" type="date">
   <div class="btns"><button id="shCancel">취소</button><button class="pri" id="shSave">저장</button></div>
+  <div class="hsum" id="hSum"></div>
+  <div id="shHist"></div>
 </div></div>
 
 <div class="ov" id="ov2"><div class="sheet">
@@ -82,7 +89,7 @@ input#codeIn{width:100%;padding:11px;border-radius:10px;border:1px solid var(--l
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
 import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
-import { getFirestore, collection, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+import { getFirestore, collection, doc, setDoc, onSnapshot, arrayUnion, arrayRemove } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 
 /* ===== Firebase 콘솔의 웹앱 설정값으로 교체 ===== */
 const firebaseConfig = {
@@ -181,24 +188,53 @@ function render(){
 const showErr=m=>{const e=$("err");e.textContent=m;e.style.display="block"};
 function findTask(docId){const base=docId.replace(/_[hw]$/,"");return TASKS.find(t=>t.id===base)}
 
-async function save(docId,patch){
+async function save(docId,patch,entry,remove){
   const t=findTask(docId), cur=data[docId]||{};
   try{
-    await setDoc(doc(fs,"families",code,"tasks",docId),{last:cur.last||null,days:cur.days||t.d,by:cur.by||"",...patch,ts:Date.now()});
+    const body={last:cur.last||null,days:cur.days||t.d,by:cur.by||"",...patch,ts:Date.now()};
+    if(entry) body.hist=arrayUnion(entry);
+    if(remove) body.hist=arrayRemove(remove);
+    await setDoc(doc(fs,"families",code,"tasks",docId),body,{merge:true});
     $("err").style.display="none";
   }catch(e){showErr("저장하지 못했어요. 가족 코드가 12자 이상인지, Firestore 규칙이 게시됐는지 확인해 주세요.")}
 }
 
+/* 기록 내역 */
+function histOf(docId){
+  const r=data[docId]||{}, arr=(r.hist||[]).map(e=>({d:e.d,by:e.by||""}));
+  if(r.last&&!arr.some(e=>e.d===r.last)) arr.push({d:r.last,by:r.by||"",legacy:1});
+  return arr.sort((x,y)=>y.d<x.d?-1:y.d>x.d?1:0);
+}
+function renderHist(){
+  const h=histOf(editing);
+  if(!h.length){$("hSum").textContent="";$("shHist").innerHTML='<div class="small" style="padding:8px 0">아직 기록이 없어요.</div>';return}
+  let avg="";
+  if(h.length>1){const span=dayDiff(h[0].d,h[h.length-1].d);avg=` · 평균 ${Math.round(span/(h.length-1))}일 간격`}
+  $("hSum").textContent=`기록 ${h.length}회${avg}`;
+  $("shHist").innerHTML=h.map((e,i)=>{
+    const gap=h[i+1]?`${dayDiff(e.d,h[i+1].d)}일 만에`:"첫 기록";
+    return `<div class="hh"><div class="d">${e.d.replace(/-/g,".")}<div class="g">${gap}</div></div><span class="g">${e.by}</span><button data-del="${i}" aria-label="삭제">✕</button></div>`;
+  }).join("");
+}
+$("shHist").addEventListener("click",async e=>{
+  const b=e.target.closest("[data-del]"); if(!b)return;
+  const h=histOf(editing), ent=h[+b.dataset.del];
+  if(!ent||!confirm(`${ent.d} 기록을 삭제할까요?`))return;
+  const rest=h.filter((_,i)=>i!==+b.dataset.del);
+  const newLast=rest.length?rest[0].d:null, newBy=rest.length?rest[0].by:"";
+  await save(editing,{last:newLast,by:newBy},null,{d:ent.d,by:ent.by});
+});
+
 $("list").addEventListener("click",async e=>{
   const d=e.target.closest("[data-done]");
-  if(d){d.disabled=true;await save(d.dataset.done,{last:today(),by:WHO[role]});d.disabled=false;return}
+  if(d){d.disabled=true;await save(d.dataset.done,{last:today(),by:WHO[role]},{d:today(),by:WHO[role]});d.disabled=false;return}
   const ed=e.target.closest("[data-edit]");
   if(ed){
     editing=ed.dataset.edit; const t=findTask(editing), r=data[editing]||{};
     const who=editing.match(/_([hw])$/);
     $("shTitle").textContent=t.e+" "+t.n+(who?` · ${WHO[who[1]]}`:"");
     $("shDays").value=r.days||t.d; $("shLast").value=r.last||"";
-    $("ov").classList.add("show");
+    $("ov").classList.add("show"); renderHist();
   }
 });
 $("shCancel").onclick=()=>$("ov").classList.remove("show");
@@ -208,7 +244,7 @@ $("shSave").onclick=async()=>{
   if(!(days>0)){showErr("주기는 1일 이상으로 입력해 주세요.");return}
   const last=$("shLast").value||null, cur=data[editing]||{};
   const patch={days}; if(last!==(cur.last||null)){patch.last=last;patch.by=WHO[role]}
-  $("ov").classList.remove("show"); await save(editing,patch);
+  $("ov").classList.remove("show"); await save(editing,patch,patch.last?{d:patch.last,by:WHO[role]}:null);
 };
 
 /* 설정 */
@@ -240,7 +276,7 @@ function start(){
     const m={}; snap.forEach(d=>m[d.id]=d.data()); data=m;
     $("dot").className="dot on";
     $("syncTxt").textContent=snap.metadata.fromCache?"오프라인 · 연결되면 동기화돼요":"실시간 동기화 중";
-    render();
+    render(); if($("ov").classList.contains("show")&&editing) renderHist();
   },()=>{$("dot").className="dot";$("syncTxt").textContent="동기화 오류 · 코드와 규칙을 확인해 주세요"});
 }
 
